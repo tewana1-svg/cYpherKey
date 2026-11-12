@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cYpherKey — Secret Message</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Courier New', Courier, monospace; }
+    body {
+      background-color: #0a0f0d;
+      color: #39ff14;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: #111916;
+      border: 2px solid #39ff14;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 0 25px rgba(57, 255, 20, 0.18);
+      text-align: center;
+    }
+    h1 { font-size: 20px; margin: 0 0 8px 0; letter-spacing: 1px; }
+    p.sub { font-size: 13px; opacity: 0.8; margin: 0 0 18px 0; }
+    label { display: block; text-align: left; margin-bottom: 6px; font-size: 13px; font-weight: bold; }
+    input {
+      width: 100%;
+      background: #0a0f0d;
+      color: #39ff14;
+      border: 1px solid #39ff14;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 14px;
+      font-size: 15px;
+    }
+    .btn {
+      width: 100%;
+      padding: 13px;
+      background: #39ff14;
+      color: #0a0f0d;
+      border: none;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn:hover { background: #2ecc11; }
+    .result {
+      margin-top: 18px;
+      padding: 14px;
+      background: #0a0f0d;
+      border: 1px solid #39ff14;
+      border-radius: 8px;
+      word-break: break-all;
+      font-size: 16px;
+      color: #ffffff;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      display: none;
+      text-align: left;
+    }
+    .error { color: #ff4d4d; border-color: #ff4d4d; text-align: center; font-size: 13px; }
+    .footer { margin-top: 18px; font-size: 11px; opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔐 cYpherKey</h1>
+
+    <div id="unlock-view" style="display:none;">
+      <p class="sub">A secret message is locked inside this key.</p>
+      <label for="unlock-pwd">ENTER PASSWORD:</label>
+      <input type="password" id="unlock-pwd" placeholder="Type secret password..." />
+      <button class="btn" onclick="unlockMessage()">UNLOCK MESSAGE</button>
+      <div class="result" id="unlock-result"></div>
+    </div>
+
+    <div id="no-key-view" style="display:none;">
+      <p class="sub" style="margin-top:12px;">
+        🔒 No key detected.<br/><br/>
+        Tap an official <strong>cYpherKey</strong> NFC ring to your phone to unlock a secret message.
+      </p>
+    </div>
+
+    <div class="footer">Official Decoder • @cypherkey.zealbird</div>
+  </div>
+
+  <script>
+    function hexToBytes(hex) {
+      const clean = hex.trim().replace(/\s+/g, '');
+      if (clean.length < 34 || clean.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(clean)) {
+        throw new Error('Invalid code');
+      }
+      const bytes = new Uint8Array(clean.length / 2);
+      for (let i = 0; i < clean.length; i += 2) {
+        bytes[i / 2] = parseInt(clean.substr(i, 2), 16);
+      }
+      return bytes;
+    }
+
+    async function deriveKey(password, saltBytes) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']
+      );
+      const bits = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial, 256
+      );
+      return new Uint8Array(bits);
+    }
+
+    const embeddedCode = window.location.hash.substring(1).trim();
+    if (embeddedCode.length >= 34) {
+      document.getElementById('unlock-view').style.display = 'block';
+    } else {
+      document.getElementById('no-key-view').style.display = 'block';
+    }
+
+    async function unlockMessage() {
+      const pwd = document.getElementById('unlock-pwd').value;
+      const out = document.getElementById('unlock-result');
+
+      try {
+        const allBytes = hexToBytes(embeddedCode);
+        const salt = allBytes.slice(0, 16);
+        const cipher = allBytes.slice(16);
+
+        const key = await deriveKey(pwd, salt);
+        const decrypted = new Uint8Array(cipher.length);
+
+        for (let i = 0; i < cipher.length; i++) {
+          decrypted[i] = cipher[i] ^ key[i % key.length];
+        }
+
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(decrypted);
+        out.style.display = 'block';
+        out.className = 'result';
+        out.textContent = text;
+      } catch (e) {
+        out.style.display = 'block';
+        out.className = 'result error';
+        out.innerText = 'Incorrect password. Try again.';
+      }
+    }
+  </script>
+</body>
+</html>
